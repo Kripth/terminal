@@ -127,7 +127,7 @@ alias Foreground = Ground!"foreground";
 
 alias Background = Ground!"background";
 
-private enum formats = ["bold", "strikethrough", "underlined", "italic", "inversed"];
+private enum formats = ["bold", "italic", "strikethrough", "underlined", "overlined", "inversed"];
 
 mixin({
 
@@ -272,12 +272,14 @@ class Terminal {
 	// ----------
 
 	public alias bold = formatImpl!(1, 22);
+	
+	public alias italic = formatImpl!(3, 23);
 
 	public alias strikethrough = formatImpl!(9, 29);
 
 	public alias underlined = formatImpl!(4, 24, "underscore");
-
-	public alias italic = formatImpl!(3, 23);
+	
+	public alias overlined = formatImpl!(53, 55, "grid_horizontal");
 
 	public alias inversed = formatImpl!(7, 27, "reverse_video");
 
@@ -402,66 +404,42 @@ unittest {
 	writeln("TITLE: ", terminal.title);
 	terminal.title = "terminal-color's unittest";
 
-	terminal.foreground = Color.brightRed;
-	writeln("RED TEXT!");
-	writeln("I SAID RED!!!");
-
-	terminal.background = Color.green;
-	writeln("RED TEXT, GREEN BACKGROUND");
-
-	terminal.background = Color.reset;
-	writeln("BACKGROUND WAS RESETTED");
-
-	terminal.underlined = true;
-	writeln("UNDERLINED!!!");
-	assert(terminal.underlined);
-
-	terminal.bold = false;
-	assert(terminal.underlined);
-
-	terminal.reset();
-	writeln("DEFAULT COLOURS");
-
-	terminal.foreground = Color.white;
-	terminal.underlined = true;
-	writeln("UNDERLINED WHITE");
-
-	terminal.underlined = false;
-	terminal.bold = true;
-	writeln("NOT UNDERLINED, BUT BOLD");
-
-	terminal.reset();
-	writeln("RESETTED");
-
-	terminal.foreground = Color.white;
-	terminal.background = Color.black;
-	writeln("WHITE ON BLACK");
-
-	terminal.inversed = true;
-	writeln("NOW INVERSED");
-
-	terminal.reset();
-
-	terminal.writelnr("Writing", Foreground(Color.green), Underlined.yes, " from", Underlined.no, Foreground(Color.black), " the", Foreground(Color.brightRed), " terminal");
-	terminal.writelnr("Using ", Background(Color.white), Foreground(255, 0, 255), Bold.yes, "violet", RESET, " from writeln");
-
-	terminal.foreground = Color.brightGreen;
-	write("TEST");
-	terminal.foreground = Color.white;
-	writeln("WHITE");
-
-	terminal.reset();
-
-	terminal.writelnr(Italic.yes, "This could be italic");
-	terminal.writelnr(Strikethrough.yes, "This could have a line in the middle");
-
+	// test rgb palette
+	ubyte conv(int num) {
+		return cast(ubyte)(num * 16);
+	}
+	foreach(r ; 0..16) {
+		foreach(g ; 0..16) {
+			foreach(b ; 0..16) {
+				terminal.write(Background([conv(r), conv(g), conv(b)]), "  ");
+			}
+			writeln();
+		}
+		writeln();
+	}
+	
+	// test foreground
+	foreach(color ; __traits(allMembers, Color)) {
+		terminal.foreground = mixin("Color." ~ color);
+		write("@");
+	}
 	writeln();
-
-	// test RGB
-	terminal.foreground = [255, 0, 255];
-	writeln("TEST RGB");
-
+	
+	// test foreground
+	foreach(color ; __traits(allMembers, Color)) {
+		terminal.background = mixin("Color." ~ color);
+		write(" ");
+	}
 	writeln();
-	terminal.reset();
+	
+	writeln();
+	
+	// test formats
+	static foreach(format ; formats) {
+		mixin("terminal." ~ format) = true;
+		terminal.writelnr(format);
+	}
+
+	terminal.writelnr();
 
 }
