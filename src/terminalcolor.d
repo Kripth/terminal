@@ -22,9 +22,8 @@
  */
 module terminalcolor;
 
-import std.conv : to; // only needed at compile time
 import std.stdio : File, stdout;
-import std.string : fromStringz, toStringz;
+import std.string : fromStringz, toStringz, toUpper, capitalize;
 import std.typecons : Flag;
 import std.utf : toUTF8;
 
@@ -56,7 +55,9 @@ version(Windows) {
 		brightYellow = yellow | BRIGHT,
 		brightMagenta = magenta | BRIGHT,
 		brightCyan = cyan | BRIGHT,
-		white = lightGray | BRIGHT
+		white = lightGray | BRIGHT,
+
+		reset = 255
 
 	}
 
@@ -81,7 +82,9 @@ version(Windows) {
 		brightYellow = 94,
 		brightMagenta = 95,
 		brightCyan = 96,
-		white = 97
+		white = 97,
+
+		reset = 255
 
 	}
 
@@ -92,6 +95,8 @@ version(Windows) {
 }
 
 private struct Ground(string _type) {
+
+	enum reset = typeof(this)(Color.reset);
 
 	union {
 
@@ -122,13 +127,19 @@ alias Foreground = Ground!"foreground";
 
 alias Background = Ground!"background";
 
-alias Bold = Flag!"bold";
+private enum formats = ["bold", "strikethrough", "underlined", "italic", "inversed"];
 
-alias Strikethrough = Flag!"strikethrough";
+mixin({
 
-alias Underlined = Flag!"underlined";
+	import std.string : capitalize;
 
-alias Italic = Flag!"italic";
+	string ret;
+	foreach(format ; formats) {
+		ret ~= "alias " ~ capitalize(format) ~ "=Flag!`" ~ format ~ "`;";
+	}
+	return ret;
+
+}());
 
 alias Reset = Flag!"reset";
 
@@ -150,27 +161,26 @@ class Terminal {
 	version(Windows) {
 
 		import std.bitmanip : bitfields;
+
+		private union Attribute {
+			
+			WORD attributes;
+			mixin(bitfields!(
+				ubyte, "foreground", 4,
+				ubyte, "background", 4,
+				// WORD is 16 bits, 8 bits are left out
+			));
+
+			alias attributes this;
+			
+		}
 	
 		private HANDLE handle;
 		private CONSOLE_SCREEN_BUFFER_INFO sbi;
 
-		private immutable WORD original;
-		private union {
-
-			WORD attributes;
-			mixin(bitfields!(
-				ubyte, "_foreground", 4,
-				ubyte, "_background", 4,
-				// WORD is 16 bits, 8 bits are left out
-			));
-
-		}
+		private Attribute original, current;
 
 		private bool uses256 = false;
-
-	} else {
-
-		private bool _bold, _underlined;
 
 	}
 
@@ -185,7 +195,8 @@ class Terminal {
 			GetConsoleScreenBufferInfo(this.handle, &csbi);
 
 			// get default colours/formatting
-			this.attributes = this.original = csbi.wAttributes;
+			this.original = Attribute(csbi.wAttributes);
+			this.current = Attribute(csbi.wAttributes);
 
 		} else {
 
@@ -218,13 +229,14 @@ class Terminal {
 			SetConsoleTitleA(toStringz(title));
 			return title;
 		} else {
+			//TODO
 			return "";
 		}
 	}
 
-	// ----------------------
-	// colours and formatting
-	// ----------------------
+	// -------
+	// colours
+	// -------
 
 	public alias foreground = colorImpl!("foreground", 0);
 
@@ -234,15 +246,17 @@ class Terminal {
 
 		public void colorImpl(color_t color) {
 			version(Windows) {
-				mixin("_" ~ type) = color;
+				if(color == Color.reset) color = mixin("original." ~ type);
+				mixin("current." ~ type) = color;
 				this.update();
 			} else {
+				if(color == Color.reset) color = 39;
 				this.update(color + add);
 			}
 		}
 
 		public void colorImpl(ubyte[3] rgb) {
-			_file.writef("\033[%d;2;%d;%d;%dm", 36 + add, rgb[0], rgb[1], rgb[2]);
+			_file.writef("\033[%d;2;%d;%d;%dm", 38 + add, rgb[0], rgb[1], rgb[2]);
 			version(Windows) this.uses256 = true;
 		}
 
@@ -253,6 +267,10 @@ class Terminal {
 
 	}
 
+	// ----------
+	// formatting
+	// ----------
+
 	public alias bold = formatImpl!(1, 22);
 
 	public alias strikethrough = formatImpl!(9, 29);
@@ -261,18 +279,15 @@ class Terminal {
 
 	public alias italic = formatImpl!(3, 23);
 
+	public alias inversed = formatImpl!(7, 27, "reverse_video");
+
 	private template formatImpl(int start, int stop, string windowsAttr="") {
 
 		version(Windows) {
 
 			// save an alias to the attribute's value
-			import std.string : toUpper;
-			static if(windowsAttr.length) {
-				private enum HAS_ATTRIBUTE = true;
-				private enum ATTRIBUTE = mixin("COMMON_LVB_" ~ windowsAttr.toUpper());
-			} else {
-				private enum HAS_ATTRIBUTE = false;
-			}
+			private enum hasAttribute = windowsAttr.length > 0;
+			static if(hasAttribute) private enum attribute = mixin("COMMON_LVB_" ~ windowsAttr.toUpper());
 
 		}
 
@@ -285,7 +300,7 @@ class Terminal {
 
 		public @property bool formatImpl() {
 			version(Windows) {
-				static if(HAS_ATTRIBUTE) return (attributes & ATTRIBUTE) != 0;
+				static if(hasAttribute) return (current.attributes & attribute) != 0;
 				else return false;
 			} else {
 				return _active;
@@ -295,9 +310,9 @@ class Terminal {
 		/// ditto
 		public @property bool formatImpl(bool active) {
 			version(Windows) {
-				static if(HAS_ATTRIBUTE) {
-					if(active) attributes |= ATTRIBUTE;
-					else attributes &= ATTRIBUTE ^ WORD.max;
+				static if(hasAttribute) {
+					if(active) current.attributes |= attribute;
+					else current.attributes &= attribute ^ WORD.max;
 					this.update();
 					return active;
 				} else {
@@ -316,30 +331,32 @@ class Terminal {
 	 */
 	public void reset() {
 		version(Windows) {
-			attributes = original;
+			current.attributes = original.attributes;
 			this.update();
 			if(this.uses256) {
 				_file.write("\033[0m");
 				this.uses256 = false;
 			}
 		} else {
-			_bold = _underlined = false;
-			this.update(0);
+			static foreach(format ; formats) {
+				mixin(format) = false;
+			}
+			this.update(0); // reset colours
 		}
 	}
 	
 	version(Windows) private void update() {
 		_file.flush();
-		SetConsoleTextAttribute(this.handle, attributes);
+		SetConsoleTextAttribute(this.handle, current.attributes);
 	}
 	
 	version(Posix) private void update(int ec) {
 		_file.writef("\033[%dm", ec);
 	}
 
-	// ------
-	// output
-	// ------
+	// -------------
+	// write methods
+	// -------------
 
 	void write(E...)(E args) {
 		foreach(arg ; args) {
@@ -347,18 +364,16 @@ class Terminal {
 				foreground = arg;
 			} else static if(is(typeof(arg) == Background)) {
 				background = arg;
-			} else static if(is(typeof(arg) == Bold)) {
-				bold = arg == Bold.yes;
-			} else static if(is(typeof(arg) == Strikethrough)) {
-				strikethrough = arg == Strikethrough.yes;
-			} else static if(is(typeof(arg) == Underlined)) {
-				underlined = arg == Underlined.yes;
-			} else static if(is(typeof(arg) == Italic)) {
-				italic = arg == Italic.yes;
 			} else static if(is(typeof(arg) == Reset)) {
 				reset();
 			} else {
-				_file.write(arg);
+				mixin({
+					string ret;
+					foreach(format ; formats) {
+						ret ~= "static if(is(typeof(arg) == " ~ capitalize(format) ~ ")){" ~ format ~ "=cast(bool)arg;}else ";
+					}
+					return ret ~ "_file.write(arg);";
+				}());
 			}
 		}
 	}
@@ -394,6 +409,9 @@ unittest {
 	terminal.background = Color.green;
 	writeln("RED TEXT, GREEN BACKGROUND");
 
+	terminal.background = Color.reset;
+	writeln("BACKGROUND WAS RESETTED");
+
 	terminal.underlined = true;
 	writeln("UNDERLINED!!!");
 	assert(terminal.underlined);
@@ -419,10 +437,13 @@ unittest {
 	terminal.background = Color.black;
 	writeln("WHITE ON BLACK");
 
+	terminal.inversed = true;
+	writeln("NOW INVERSED");
+
 	terminal.reset();
 
 	terminal.writelnr("Writing", Foreground(Color.green), Underlined.yes, " from", Underlined.no, Foreground(Color.black), " the", Foreground(Color.brightRed), " terminal");
-	terminal.writelnr("Using ", Background(Color.white), Foreground(255, 0, 255), "violet", RESET, " from writeln");
+	terminal.writelnr("Using ", Background(Color.white), Foreground(255, 0, 255), Bold.yes, "violet", RESET, " from writeln");
 
 	terminal.foreground = Color.brightGreen;
 	write("TEST");

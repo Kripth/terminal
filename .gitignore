@@ -10,3 +10,4 @@
 *.userprefs
 *.selections.json
 .dub
+terminal-test-library
