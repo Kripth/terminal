@@ -1,0 +1,4 @@
+name "terminal-color"
+description "Color and formatting for the terminal"
+authors "Kripth"
+license "MIT"

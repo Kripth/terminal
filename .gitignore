@@ -1,0 +1,12 @@
+*.exe
+*.sln
+*.userprefs
+*.dproj
+*.obj
+*.o
+*.lib
+*.a
+*.dll
+*.userprefs
+*.selections.json
+.dub
