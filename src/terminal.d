@@ -20,7 +20,7 @@
  * SOFTWARE.
  *
  */
-module terminalcolor;
+module terminal;
 
 import std.stdio : File, stdout;
 import std.string : fromStringz, toStringz, toUpper, capitalize;
@@ -401,7 +401,6 @@ unittest {
 
 	auto terminal = new Terminal();
 
-	writeln("TITLE: ", terminal.title);
 	terminal.title = "terminal-color's unittest";
 
 	// test rgb palette
