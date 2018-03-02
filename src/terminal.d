@@ -63,6 +63,26 @@ version(Windows) {
 
 } else version(Posix) {
 
+	version(linux) {
+
+		struct winsize {
+
+			ushort ws_row;
+			ushort ws_col;
+			ushort ws_xpixel;
+			ushort ws_ypixel;
+
+		}
+
+		enum uint TIOCGWINSZ = 0x5413;
+		extern(C) int ioctl(int, int, ...);
+
+	} else {
+
+		import core.sys.posix.sys.ioctl : winsize, TIOCGWINSZ, ioctl;
+
+	}
+
 	alias color_t = ubyte;
 
 	enum Color : ubyte {
@@ -143,12 +163,8 @@ mixin({
 
 alias Reset = Flag!"reset";
 
-/**
- * Resets the colours and the formatting.
- */
 enum RESET = Reset.yes;
 
-/// ditto
 alias reset = RESET;
 
 /**
@@ -232,6 +248,37 @@ class Terminal {
 			//TODO
 			return "";
 		}
+	}
+
+	// ----
+	// size
+	// ----
+
+	private static struct Size {
+
+		uint width;
+		uint height;
+
+	}
+
+	public @property Size size() {
+		version(Windows) {
+			CONSOLE_SCREEN_BUFFER_INFO info;
+			GetConsoleScreenBufferInfo(this.handle, &info);
+			return Size(info.srWindow.Right - info.srWindow.Left + 1, info.srWindow.Bottom - info.srWindow.Top + 1);
+		} else {
+			winsize ws;
+			ioctl(_file.fileno, TIOCGWINSZ, &ws);
+			return Size(ws.ws_col, ws.ws_row);
+		}
+	}
+
+	public @property uint width() {
+		return this.size.width;
+	}
+
+	public @property uint height() {
+		return this.size.height;
 	}
 
 	// -------
@@ -438,7 +485,12 @@ unittest {
 		mixin("terminal." ~ format) = true;
 		terminal.writelnr(format);
 	}
-
+	
 	terminal.writelnr();
+
+	// size
+	writeln(terminal.size);
+
+	writeln();
 
 }
