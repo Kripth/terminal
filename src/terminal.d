@@ -151,8 +151,6 @@ private enum formats = ["bold", "italic", "strikethrough", "underlined", "overli
 
 mixin({
 
-	import std.string : capitalize;
-
 	string ret;
 	foreach(format ; formats) {
 		ret ~= "alias " ~ capitalize(format) ~ "=Flag!`" ~ format ~ "`;";
@@ -190,9 +188,6 @@ class Terminal {
 			alias attributes this;
 			
 		}
-	
-		private HANDLE handle;
-		private CONSOLE_SCREEN_BUFFER_INFO sbi;
 
 		private Attribute original, current;
 
@@ -206,13 +201,16 @@ class Terminal {
 
 		version(Windows) {
 
-			this.handle = file.windowsHandle;
 			CONSOLE_SCREEN_BUFFER_INFO csbi;
-			GetConsoleScreenBufferInfo(this.handle, &csbi);
+			GetConsoleScreenBufferInfo(file.windowsHandle, &csbi);
 
 			// get default colours/formatting
 			this.original = Attribute(csbi.wAttributes);
 			this.current = Attribute(csbi.wAttributes);
+
+			// check 256-colour support
+			auto v = GetVersion();
+
 
 		} else {
 
@@ -222,12 +220,17 @@ class Terminal {
 
 	}
 
+	public final pure nothrow @property @safe @nogc ref File file() {
+		return _file;
+	}
+
 	// ------
 	// titles
 	// ------
 
 	/**
 	 * Gets the console's title.
+	 * Only works on Windows.
 	 */
 	public @property string title() {
 		version(Windows) {
@@ -239,15 +242,24 @@ class Terminal {
 		}
 	}
 
+	/**
+	 * Sets the console's title.
+	 * The original title is usually restored when the program's execution ends.
+	 * Returns: The console's title. On Windows it may be cropped if its length exceeds MAX_PATH.
+	 * Example:
+	 * ---
+	 * terminal.title = "Custom Title";
+	 * ---
+	 */
 	public @property string title(string title) {
 		version(Windows) {
 			if(title.length > MAX_PATH) title = title[0..MAX_PATH];
 			SetConsoleTitleA(toStringz(title));
-			return title;
 		} else {
-			//TODO
-			return "";
+			_file.write("\033]0;" ~ title ~ "\007");
+			_file.flush();
 		}
+		return title;
 	}
 
 	// ----
@@ -259,13 +271,25 @@ class Terminal {
 		uint width;
 		uint height;
 
+		alias columns = width;
+		alias rows = height;
+
 	}
 
+	/**
+	 * Gets the terminal's width (columns) and height (rows).
+	 * Example:
+	 * ---
+	 * auto size = terminal.size;
+	 * foreach(i ; 0..size.width)
+	 *    write("*");
+	 * ---
+	 */
 	public @property Size size() {
 		version(Windows) {
-			CONSOLE_SCREEN_BUFFER_INFO info;
-			GetConsoleScreenBufferInfo(this.handle, &info);
-			return Size(info.srWindow.Right - info.srWindow.Left + 1, info.srWindow.Bottom - info.srWindow.Top + 1);
+			CONSOLE_SCREEN_BUFFER_INFO csbi;
+			GetConsoleScreenBufferInfo(_file.windowsHandle, &csbi);
+			with(csbi.srWindow) return Size(Right - Left + 1, Bottom - Top + 1);
 		} else {
 			winsize ws;
 			ioctl(_file.fileno, TIOCGWINSZ, &ws);
@@ -289,7 +313,7 @@ class Terminal {
 
 	public alias background = colorImpl!("background", 10);
 
-	protected template colorImpl(string type, int add) {
+	private template colorImpl(string type, int add) {
 
 		public void colorImpl(color_t color) {
 			version(Windows) {
@@ -396,7 +420,7 @@ class Terminal {
 	
 	version(Windows) private void update() {
 		_file.flush();
-		SetConsoleTextAttribute(this.handle, current.attributes);
+		SetConsoleTextAttribute(_file.windowsHandle, current.attributes);
 	}
 	
 	version(Posix) private void update(int ec) {
