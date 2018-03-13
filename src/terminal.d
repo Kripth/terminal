@@ -208,13 +208,6 @@ class Terminal {
 			this.original = Attribute(csbi.wAttributes);
 			this.current = Attribute(csbi.wAttributes);
 
-			// check 256-colour support
-			auto v = GetVersion();
-
-
-		} else {
-
-			//TODO get terminal name and check 256-color support
 
 		}
 
